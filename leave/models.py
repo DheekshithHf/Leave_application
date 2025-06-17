@@ -110,7 +110,7 @@ class LeaveRequest(models.Model):
     end_date = models.DateField()
     reason = models.TextField()
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
-    backup_person = models.CharField(max_length=100, blank=True)
+    backup_person = models.CharField(max_length=100, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     supervisor_comment = models.TextField(null=True, blank=True)

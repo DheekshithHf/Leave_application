@@ -6,11 +6,24 @@ from .models import LeaveRequest
 from django.utils import timezone
 from slack_sdk.errors import SlackApiError
 import logging
+import logging
 
 logger = logging.getLogger(__name__)
 
 def handle_block_actions(payload):
-    """Handle all block action button clicks"""
+    """
+    Main handler for all block action button clicks in Slack messages
+    
+    WORKFLOW ROUTING:
+    - upload_document: Opens file browser for document upload
+    - approve_unpaid/approve_compensatory: Offers alternate approval options to employee
+    - employee_accept_unpaid/employee_reject_offer/employee_accept_comp: Employee responses
+    - request_med_cert/request_docs: Manager requests medical/birth certificates
+    - submit_doc_later: Employee chooses to submit documents later
+    - cancel_request: Employee cancels their request
+    - verify_document/reject_document: Manager verifies uploaded documents
+    - approve_regular/reject_leave: Standard approve/reject actions
+    """
     try:
         action = payload['actions'][0]
         action_id = action['action_id']
@@ -54,7 +67,16 @@ def handle_upload_document_action(payload, action):
     return JsonResponse({'text': 'Opening document upload form...'})
 
 def handle_compensatory_actions(payload, action, action_id):
-    """Handle unpaid and compensatory leave actions"""
+    """
+    Handle unpaid and compensatory leave actions
+    
+    WORKFLOW:
+    1. Manager clicks 'Approve as Unpaid' or 'Approve with Compensatory Work'
+    2. Creates notification blocks for employee with response options
+    3. Sends notification to leave_app channel (with fallback to DM)
+    4. Updates manager view to show waiting status
+    5. Sends update to manager thread
+    """
     leave_id = action['value'].split('|')[0]
     leave_request = LeaveRequest.objects.get(id=leave_id)
     
@@ -126,44 +148,99 @@ def handle_compensatory_actions(payload, action, action_id):
     return JsonResponse({'status': 'ok'})
 
 def handle_employee_responses(payload, action, action_id):
-    """Handle employee responses to compensatory offers"""
+    """
+    Handle employee responses to compensatory offers
+    
+    WORKFLOW:
+    - For compensatory work acceptance: Opens date picker modal
+    - For other responses: Updates status and notifies manager
+    - Always sends confirmation to employee via leave_app channel
+    - Updates original message to remove action buttons
+    """
     leave_id = action['value'].split('|')[0]
     leave_request = LeaveRequest.objects.get(id=leave_id)
     
     # Process response and create notification
-    notification_blocks, status_text = process_employee_response(leave_request, action_id, payload)
-    
-    # Update thread in manager channel
-    if leave_request.thread_ts:
-        update_leave_thread(
-            leave_request,
-            notification_blocks,
-            f"Employee response: {status_text}"
-        )
-    
-    # Send confirmation to employee via leave_app channel
-    try:
-        slack_client.chat_postMessage(
-            channel='leave_app',
-            blocks=[{
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": (
-                        f"✅ *Leave Request Update*\n\n"
-                        f"You have {status_text}\n"
-                        f"*Duration:* {leave_request.start_date} to {leave_request.end_date}\n"
-                        f"*Status:* {leave_request.status}"
-                    )
+    if action_id == 'employee_accept_comp':
+        # For compensatory work, ask employee to choose a date
+        leave_request.status = 'PENDING_COMP_DATE'
+        leave_request.save()
+        
+        # Create date selection modal
+        date_modal = {
+            "type": "modal",
+            "callback_id": "comp_date_selection",
+            "title": {"type": "plain_text", "text": "Select Compensatory Date"},
+            "submit": {"type": "plain_text", "text": "Confirm Date"},
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": (
+                            f"*Please select when you will do compensatory work:*\n\n"
+                            f"*Leave Period:* {leave_request.start_date} to {leave_request.end_date}\n"
+                            f"*Duration:* {(leave_request.end_date - leave_request.start_date).days + 1} days\n\n"
+                            f"You need to complete equivalent work hours on the selected date(s)."
+                        )
+                    }
+                },
+                {
+                    "type": "input",
+                    "block_id": "comp_date",
+                    "element": {
+                        "type": "datepicker",
+                        "action_id": "date_select",
+                        "placeholder": {"type": "plain_text", "text": "Select compensatory work date"}
+                    },
+                    "label": {"type": "plain_text", "text": "Compensatory Work Date"}
                 }
-            }],
-            text=f"Leave request {status_text}"
+            ],
+            "private_metadata": str(leave_request.id)
+        }
+        
+        slack_client.views_open(
+            trigger_id=payload['trigger_id'],
+            view=date_modal
         )
-    except SlackApiError as channel_error:
-        if 'channel_not_found' in str(channel_error):
-            # Fallback to user DM if leave_app channel doesn't exist
+        
+        # Notify manager about date selection request
+        if leave_request.thread_ts:
+            update_leave_thread(
+                leave_request,
+                [{
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": (
+                            f"🔄 *Employee Response: Accepted Compensatory Work*\n\n"
+                            f"<@{leave_request.employee.username}> has accepted the compensatory work arrangement.\n"
+                            f"*Duration:* {leave_request.start_date} to {leave_request.end_date}\n"
+                            f"*Status:* Employee is selecting compensatory work date"
+                        )
+                    }
+                }],
+                "Employee accepted compensatory work - selecting date"
+            )
+        
+        return JsonResponse({'status': 'ok'})
+        
+    else:
+        # Handle other responses normally
+        notification_blocks, status_text = process_employee_response(leave_request, action_id, payload)
+        
+        # Update thread in manager channel
+        if leave_request.thread_ts:
+            update_leave_thread(
+                leave_request,
+                notification_blocks,
+                f"Employee response: {status_text}"
+            )
+        
+        # Send confirmation to employee via leave_app channel
+        try:
             slack_client.chat_postMessage(
-                channel=leave_request.employee.username,
+                channel='leave_app',
                 blocks=[{
                     "type": "section",
                     "text": {
@@ -178,32 +255,51 @@ def handle_employee_responses(payload, action, action_id):
                 }],
                 text=f"Leave request {status_text}"
             )
-        else:
-            raise channel_error
-    
-    # Update the original message in the employee's channel to remove buttons
-    if payload.get('message') and payload.get('channel'):
-        try:
-            slack_client.chat_update(
-                channel=payload['channel']['id'],
-                ts=payload['message']['ts'],
-                blocks=[{
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": (
-                            f"✅ *Leave Request Update*\n\n"
-                            f"You have {status_text}\n"
-                            f"*Duration:* {leave_request.start_date} to {leave_request.end_date}\n"
-                            f"*Status:* {leave_request.status}"
-                        )
-                    }
-                }]
-            )
-        except SlackApiError as e:
-            logger.error(f"Error updating message: {e}")
-    
-    return JsonResponse({'status': 'ok'})
+        except SlackApiError as channel_error:
+            if 'channel_not_found' in str(channel_error):
+                # Fallback to user DM if leave_app channel doesn't exist
+                slack_client.chat_postMessage(
+                    channel=leave_request.employee.username,
+                    blocks=[{
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": (
+                                f"✅ *Leave Request Update*\n\n"
+                                f"You have {status_text}\n"
+                                f"*Duration:* {leave_request.start_date} to {leave_request.end_date}\n"
+                                f"*Status:* {leave_request.status}"
+                            )
+                        }
+                    }],
+                    text=f"Leave request {status_text}"
+                )
+            else:
+                raise channel_error
+        
+        # Update the original message in the employee's channel to remove buttons
+        if payload.get('message') and payload.get('channel'):
+            try:
+                slack_client.chat_update(
+                    channel=payload['channel']['id'],
+                    ts=payload['message']['ts'],
+                    blocks=[{
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": (
+                                f"✅ *Leave Request Update*\n\n"
+                                f"You have {status_text}\n"
+                                f"*Duration:* {leave_request.start_date} to {leave_request.end_date}\n"
+                                f"*Status:* {leave_request.status}"
+                            )
+                        }
+                    }]
+                )
+            except SlackApiError as e:
+                logger.error(f"Error updating message: {e}")
+        
+        return JsonResponse({'status': 'ok'})
 
 def handle_document_requests(payload, action, action_id):
     """Handle document request actions"""

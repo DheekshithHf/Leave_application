@@ -3,6 +3,8 @@ from .slack_utils import slack_client, get_or_create_user, is_manager, is_in_man
 from .models import Department
 from datetime import datetime, timedelta
 from slack_sdk.errors import SlackApiError
+import threading
+import logging
 import logging
 import threading
 

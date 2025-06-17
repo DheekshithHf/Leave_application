@@ -146,6 +146,8 @@ def handle_modal_submission(payload):
             return handle_document_upload_modal_submission(payload)
         elif callback_id == 'leave_request_modal':
             return handle_leave_request_modal_submission(payload)
+        elif callback_id == 'comp_date_selection':
+            return handle_comp_date_selection(payload)
         
         return JsonResponse({})
             
@@ -341,27 +343,99 @@ def handle_document_upload_modal_submission(payload):
             }
         })
 
-# handle_apply_leave is now in command_handlers.py
-
-# handle_modal_submission is now streamlined - complex logic moved to modal_handlers.py
-
-
-# handle_block_actions is now in block_action_handlers.py
-
-# handle_my_leaves is now in command_handlers.py
-
-# handle_leave_balance is now in command_handlers.py
-
-# create_document_upload_modal is now in approval_utils.py
-
-# is_manager and is_in_manager_channel functions are now in slack_utils.py
-
-# handle_department_command is now in command_handlers.py
-
-# All team functions are now in team_utils.py
-
-# update_leave_balance_on_approval is now in leave_utils.py
-
-# handle_leave_policy is now in command_handlers.py
-
-# handle_team_calendar and handle_team_calendar_filter_submission are now in calendar_handlers.py
+def handle_comp_date_selection(payload):
+    """Handle compensatory date selection modal submission"""
+    try:
+        # Get leave request ID and details
+        leave_id = payload['view']['private_metadata']
+        leave_request = LeaveRequest.objects.get(id=leave_id)
+        values = payload['view']['state']['values']
+        
+        # Get selected date
+        selected_date = values['comp_date']['date_select']['selected_date']
+        comp_date = datetime.strptime(selected_date, '%Y-%m-%d').date()
+        
+        # Update leave request
+        leave_request.compensatory_date = comp_date
+        leave_request.status = 'APPROVED_COMPENSATORY'
+        leave_request.save()
+        
+        # Update leave balance for approved compensatory leave
+        from .leave_utils import update_leave_balance_on_approval
+        update_leave_balance_on_approval(leave_request)
+        
+        # Notify manager about date selection
+        if leave_request.thread_ts:
+            update_leave_thread(
+                leave_request,
+                [{
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": (
+                            f"✅ *FINAL DECISION: Compensatory Work Date Selected*\n\n"
+                            f"*Employee:* <@{leave_request.employee.username}>\n"
+                            f"*Leave Period:* {leave_request.start_date} to {leave_request.end_date}\n"
+                            f"*Compensatory Work Date:* {comp_date}\n"
+                            f"*Final Status:* APPROVED WITH COMPENSATORY WORK\n\n"
+                            f"🔒 *This request has been completed and the thread is now closed.*"
+                        )
+                    }
+                }],
+                f"FINAL: Compensatory work date selected - Thread closed"
+            )
+        
+        # Send confirmation to employee via leave_app channel
+        try:
+            slack_client.chat_postMessage(
+                channel='leave_app',
+                blocks=[{
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": (
+                            f"✅ *Leave Request Finalized*\n\n"
+                            f"Your compensatory work arrangement has been confirmed.\n"
+                            f"*Leave Period:* {leave_request.start_date} to {leave_request.end_date}\n"
+                            f"*Compensatory Work Date:* {comp_date}\n"
+                            f"*Status:* APPROVED WITH COMPENSATORY WORK\n\n"
+                            f"Please complete your compensatory work on the selected date."
+                        )
+                    }
+                }],
+                text="Compensatory work date confirmed"
+            )
+        except SlackApiError as channel_error:
+            if 'channel_not_found' in str(channel_error):
+                # Fallback to user DM if leave_app channel doesn't exist
+                slack_client.chat_postMessage(
+                    channel=leave_request.employee.username,
+                    blocks=[{
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": (
+                                f"✅ *Leave Request Finalized*\n\n"
+                                f"Your compensatory work arrangement has been confirmed.\n"
+                                f"*Leave Period:* {leave_request.start_date} to {leave_request.end_date}\n"
+                                f"*Compensatory Work Date:* {comp_date}\n"
+                                f"*Status:* APPROVED WITH COMPENSATORY WORK\n\n"
+                                f"Please complete your compensatory work on the selected date."
+                            )
+                        }
+                    }],
+                    text="Compensatory work date confirmed"
+                )
+            else:
+                raise channel_error
+        
+        return JsonResponse({"response_action": "clear"})
+        
+    except Exception as e:
+        logger.error(f"Error processing compensatory date selection: {e}")
+        return JsonResponse({
+            "response_action": "errors",
+            "errors": {
+                "comp_date": f"Error processing date selection: {str(e)}"
+            }
+        })

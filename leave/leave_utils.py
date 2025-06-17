@@ -68,7 +68,15 @@ def get_paternity_leave_info(user):
         }
 
 def get_leave_balance(slack_user_id):
-    """Get leave balance for a user"""
+    """
+    Get leave balance for a user with dynamic maternity/paternity info
+    
+    FEATURES:
+    - Monthly reset for casual/sick leave
+    - Dynamic maternity leave calculation (182 days for 1st/2nd, 84 days for 3rd+)
+    - Dynamic paternity leave calculation (16 days per occurrence)
+    - Safe handling of missing balance records
+    """
     from .slack_utils import get_or_create_user
     
     user = get_or_create_user(slack_user_id)
@@ -209,6 +217,67 @@ def get_department_conflicts(start_date, end_date, department, exclude_user=None
         'approved_names': [f"<@{leave.employee.username}>" for leave in approved_leaves],
         'pending_names': [f"<@{leave.employee.username}>" for leave in pending_leaves]
     }
+
+def get_team_conflicts(start_date, end_date, user, exclude_user=None):
+    """Get detailed team conflicts with employee names, team names, and date ranges"""
+    from .models import Team
+    
+    # Get all teams the user is a member of
+    user_teams = Team.objects.filter(members=user)
+    
+    if not user_teams.exists():
+        return None
+    
+    # Get conflicts for all team members across all user's teams
+    team_conflicts_data = {}
+    
+    for team in user_teams:
+        # Get leave conflicts for this team's members
+        team_conflicts = LeaveRequest.objects.filter(
+            Q(start_date__lte=end_date) & Q(end_date__gte=start_date),
+            status__in=['APPROVED', 'PENDING'],
+            employee__in=team.members.all()
+        )
+        
+        if exclude_user:
+            team_conflicts = team_conflicts.exclude(employee=exclude_user)
+        
+        if team_conflicts.exists():
+            approved_leaves = team_conflicts.filter(status='APPROVED')
+            pending_leaves = team_conflicts.filter(status='PENDING')
+            
+            # Format approved leaves with detailed info
+            approved_details = []
+            for leave in approved_leaves:
+                # Format date range
+                if leave.start_date == leave.end_date:
+                    date_str = leave.start_date.strftime('%Y-%m-%d')
+                else:
+                    date_str = f"{leave.start_date.strftime('%Y-%m-%d')} to {leave.end_date.strftime('%Y-%m-%d')}"
+                
+                approved_details.append(f"<@{leave.employee.username}> - {date_str}")
+            
+            # Format pending leaves with detailed info
+            pending_details = []
+            for leave in pending_leaves:
+                # Format date range
+                if leave.start_date == leave.end_date:
+                    date_str = leave.start_date.strftime('%Y-%m-%d')
+                else:
+                    date_str = f"{leave.start_date.strftime('%Y-%m-%d')} to {leave.end_date.strftime('%Y-%m-%d')}"
+                
+                pending_details.append(f"<@{leave.employee.username}> - {date_str}")
+            
+            team_conflicts_data[team.name] = {
+                'approved_count': len(approved_details),
+                'pending_count': len(pending_details),
+                'approved_details': approved_details,
+                'pending_details': pending_details,
+                'approved_names': [f"<@{leave.employee.username}>" for leave in approved_leaves],
+                'pending_names': [f"<@{leave.employee.username}>" for leave in pending_leaves]
+            }
+    
+    return team_conflicts_data if team_conflicts_data else None
 
 def create_leave_block(leave, display_options):
     """Create a formatted block for a single leave entry"""

@@ -2,13 +2,21 @@ from django.http import JsonResponse
 from .slack_utils import slack_client, get_or_create_user
 from .models import LeaveRequest, UserRole, Department
 from slack_sdk.errors import SlackApiError
-import logging
 import threading
+import logging
 
 logger = logging.getLogger(__name__)
 
 def handle_apply_leave(request):
-    """Handle apply leave command - open the leave application modal"""
+    """
+    Handle apply leave command - open the leave application modal
+    
+    WORKFLOW:
+    1. Gets user's current leave balance (with maternity/paternity count tracking)
+    2. Creates modal form with balance display at top
+    3. Opens modal in background thread to avoid timeout
+    4. Form submission is handled by modal_handlers.py
+    """
     try:
         user_id = request.POST.get('user_id')
         
@@ -19,7 +27,7 @@ def handle_apply_leave(request):
                 from .leave_utils import get_leave_balance
                 balance = get_leave_balance(user_id)
                 
-                # Base blocks for the form
+                # Base blocks for the form - SHOWS USER'S CURRENT LEAVE BALANCE
                 base_blocks = [
                     {
                         "type": "section",
@@ -27,10 +35,10 @@ def handle_apply_leave(request):
                             "type": "mrkdwn",
                             "text": (
                                 f"*📊 Your Leave Balance:*\n\n"
-                                f"**Monthly Leaves:**\n"
+                                f"*Monthly Leaves:*\n"
                                 f"• 🏖️ Casual Leave: {balance['casual']['remaining']} days remaining (Used: {balance['casual']['used']})\n"
                                 f"• 🏥 Sick Leave: {balance['sick']['remaining']} days remaining (Used: {balance['sick']['used']})\n\n"
-                                f"**Special Leaves:**\n"
+                                f"*Special Leaves:*\n"
                                 f"• 🤱 Maternity: {balance['maternity']['remaining']} days available ({balance['maternity']['status']})\n"
                                 f"• 👨‍👶 Paternity: {balance['paternity']['remaining']} days available ({balance['paternity']['status']})"
                             )

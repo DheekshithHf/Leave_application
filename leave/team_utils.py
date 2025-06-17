@@ -3,8 +3,8 @@ from .models import Team
 from .slack_utils import get_or_create_user, slack_client
 from django.db import transaction
 from slack_sdk.errors import SlackApiError
-import logging
 import threading
+import logging
 
 logger = logging.getLogger(__name__)
 
