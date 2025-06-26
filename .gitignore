@@ -1,4 +1,4 @@
-# Python bytecode and cache
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
@@ -6,7 +6,7 @@ __pycache__/
 # C extensions
 *.so
 
-# Distribution/build
+# Distribution / packaging
 .Python
 build/
 develop-eggs/
@@ -25,7 +25,7 @@ wheels/
 *.egg
 MANIFEST
 
-# Django stuff
+# Django stuff:
 *.log
 local_settings.py
 db.sqlite3
@@ -67,13 +67,13 @@ Thumbs.db
 **/migrations/*.py
 !**/migrations/__init__.py
 
-# Ignore backup and test data
+# Backup and test data
 *.bak
 *.tmp
 *.orig
 *.old
 
-# Ignore test output
+# Test output
 *.coverage
 .coverage.*
 .cache
@@ -82,19 +82,23 @@ coverage.xml
 *.cover
 .hypothesis/
 
-# Ignore pip wheelhouse
+# pip wheelhouse
 wheelhouse/
 
-# Ignore pytest cache
+# pytest cache
 .pytest_cache/
 
-# Ignore mypy cache
+# mypy cache
 .mypy_cache/
 
-# Ignore celery beat schedule files
+# celery beat schedule files
 celerybeat-schedule
 
-# Ignore profiling data
+# profiling data
 .prof
 
-# End of file
+# VS Code settings
+.vscode/
+
+# Ignore all virtual environments
+lenv/
