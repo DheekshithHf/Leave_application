@@ -42,19 +42,19 @@ class LeaveBalance(models.Model):
     # Add tracking fields for used leave
     casual_used = models.IntegerField(default=0)
     sick_used = models.IntegerField(default=0)
-    last_reset = models.DateField(auto_now_add=True)
+    last_reset_date = models.DateField(auto_now_add=True)
 
     def __str__(self):
         return f"{self.user.username}'s Leave Balance"
 
     def reset_monthly_balance(self):
         today = timezone.now().date()
-        if self.last_reset.month != today.month or self.last_reset.year != today.year:
+        if self.last_reset_date.month != today.month or self.last_reset_date.year != today.year:
             self.casual_leave = 2
             self.sick_leave = 5
             self.casual_used = 0  # Reset used days
             self.sick_used = 0    # Reset used days
-            self.last_reset = today
+            self.last_reset_date = today
             self.save()
 
     def get_used_days(self, leave_type):
@@ -128,9 +128,37 @@ class LeaveRequest(models.Model):
     # Thread tracking
     thread_ts = models.CharField(max_length=50, null=True, blank=True)
     document_thread_ts = models.CharField(max_length=50, null=True, blank=True)  # For document submission thread
+    employee_thread_ts = models.CharField(max_length=50, null=True, blank=True)  # For employee thread tracking
+    manager_threads = models.JSONField(default=dict, blank=True)  # NEW: Store manager-specific threads
+
+    # Manager selection for email workflow
+    selected_managers = models.TextField(null=True, blank=True)  # Store comma-separated manager IDs
 
     def __str__(self):
         return f"{self.employee.username}'s {self.get_leave_type_display()} ({self.start_date} to {self.end_date})"
+    
+    def get_selected_managers_list(self):
+        """Return list of selected manager IDs"""
+        if self.selected_managers:
+            return [manager.strip() for manager in self.selected_managers.split(',') if manager.strip()]
+        return []
+    def get_manager_thread(self, manager_id):
+        """Get thread timestamp for specific manager with fallback"""
+        if self.manager_threads and manager_id in self.manager_threads:
+            return self.manager_threads[manager_id]
+        # FALLBACK to main thread_ts for backward compatibility
+        return self.thread_ts
+    
+    def set_manager_thread(self, manager_id, thread_ts):
+        """Store thread timestamp for specific manager"""
+        if not self.manager_threads:
+            self.manager_threads = {}
+        self.manager_threads[manager_id] = thread_ts
+        self.save()
+    
+    def get_manager_thread(self, manager_id):
+        """Get thread timestamp for specific manager"""
+        return self.manager_threads.get(manager_id) if self.manager_threads else None
 
 class LeavePolicy(models.Model):
     name = models.CharField(max_length=100)
@@ -147,3 +175,5 @@ class LeavePolicy(models.Model):
 
     class Meta:
         verbose_name_plural = "Leave Policies"
+
+

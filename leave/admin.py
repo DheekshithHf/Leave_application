@@ -3,9 +3,9 @@ from .models import LeaveRequest, LeaveBalance, LeavePolicy, Department, Team, U
 
 @admin.register(LeaveBalance)
 class LeaveBalanceAdmin(admin.ModelAdmin):
-    list_display = ['user', 'casual_leave', 'sick_leave', 'last_reset']
+    list_display = ['user', 'casual_leave', 'sick_leave', 'last_reset_date']
     search_fields = ['user__username']
-    readonly_fields = ['last_reset']
+    readonly_fields = ['last_reset_date']
 
 @admin.register(LeavePolicy)
 class LeavePolicyAdmin(admin.ModelAdmin):

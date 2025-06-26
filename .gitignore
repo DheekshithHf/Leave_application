@@ -1,8 +1,12 @@
-# Python
+# Python bytecode and cache
 __pycache__/
 *.py[cod]
 *$py.class
+
+# C extensions
 *.so
+
+# Distribution/build
 .Python
 build/
 develop-eggs/
@@ -21,31 +25,36 @@ wheels/
 *.egg
 MANIFEST
 
-# Django
+# Django stuff
 *.log
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
-media/
 
-# Environment variables
+# Media and static files
+media/
+staticfiles/
+static/
+
+# Environment variables and secrets
 .env
 .venv
-/Users/happyfox/Documents/HappyFox/Leave_application/.env
 env/
 venv/
 ENV/
 env.bak/
 venv.bak/
+secrets.py
+.secretsdb.sqlite3
 
-# IDE
+# IDE/editor files
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 
-# OS
+# OS files
 .DS_Store
 .DS_Store?
 ._*
@@ -54,15 +63,38 @@ venv.bak/
 ehthumbs.db
 Thumbs.db
 
-# Migration files (optional - uncomment if you don't want to track migrations)
-# */migrations/*.py
-# !*/migrations/__init__.py
+# Migration files except __init__.py
+**/migrations/*.py
+!**/migrations/__init__.py
 
-# Static files (if you have them)
-staticfiles/
-static/
+# Ignore backup and test data
+*.bak
+*.tmp
+*.orig
+*.old
 
-# Secret keys and sensitive data
-secrets.py
-.secretsdb.sqlite3
-db.sqlite3
+# Ignore test output
+*.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+
+# Ignore pip wheelhouse
+wheelhouse/
+
+# Ignore pytest cache
+.pytest_cache/
+
+# Ignore mypy cache
+.mypy_cache/
+
+# Ignore celery beat schedule files
+celerybeat-schedule
+
+# Ignore profiling data
+.prof
+
+# End of file
